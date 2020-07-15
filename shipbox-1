@@ -1,22 +1,19 @@
 #!/bin/bash
 
-# or run the script as root.
-sudo -s
+# Note that CUPS install is not needed, IoT uses it as well...
+
+set -x
+# run as root (e.g. sudo -s first)
 mount -o remount,rw /  && mount -o remount,rw /root_bypass_ramdisks/ \
   && mount --bind /root_bypass_ramdisks/etc /etc \
   && mount --bind /root_bypass_ramdisks/var /var
 
 # Installs.
-apt-get update && apt-get install -y cups nginx
-
-# CUPS
-sed -i 's/Order deny,allow/Order allow,deny/' /etc/cups/cupsd.conf
-sed -i 's/Listen localhost:631/Port 631/' /etc/cups/cupsd.conf
-sed -i $'s_</Location>_  Allow all\\\n</Location>_' /etc/cups/cupsd.conf
-usermod -a -G lpadmin pi
+apt-get update && apt-get install -y nginx
 
 # Nginx
 sed -i 's/worker_processes 4;/worker_processes 1;/' /etc/nginx/nginx.conf
+sed -i 's/worker_processes auto;/worker_processes 1;/' /etc/nginx/nginx.conf
 sed -i 's/access_log .*;/access_log off;/' /etc/nginx/nginx.conf
 
 mkdir /etc/nginx/ssl
@@ -32,12 +29,15 @@ EndOfMessage
 
 
 cat > /etc/nginx/sites-enabled/default << EndOfMessage
+
 upstream odoo {
-  server 127.0.0.1:8069;
+  server 127.0.0.1:8069 max_conns=1;
 }
+
 server {
   listen 80 default_server;
   listen [::]:80 default_server;
+
   # SSL configuration
   #
   listen 443 ssl default_server;
@@ -53,15 +53,20 @@ server {
   # ssl_certificate /etc/nginx/ssl/server.crt;
   # ssl_certificate_key /etc/nginx/ssl/server.key;
   
+
   root /var/www/html;
+
   # Add index.php to the list if you are using PHP
   index index.html index.htm index.nginx-debian.html;
+
   server_name _;
+
   include proxy_params;
   
   location / {
     proxy_pass http://odoo;
   }
+
   location /web/static/ {
     proxy_cache_valid 100 60m;
     proxy_buffering on;
@@ -71,16 +76,20 @@ server {
 }
 EndOfMessage
 
-# GIT
+# GIT ShipBox Deploy
 cd /home/pi
 git clone https://github.com/hibou-io/shipbox.git -b master ./shipbox
 cd /home/pi/odoo/addons/
 find ../../shipbox/ -name 'hw_*' -type d -exec ln -s {} . \;
 
-# Odoo configuration.
-# Currently if no USB scale is found, it can mess up the status page.
-# sed -i 's/,hw_scale,/,hw_scale_usb,hw_cups,/' /etc/init.d/odoo
-sed -i 's/,hw_scale,/,hw_scale,hw_cups,/' /etc/init.d/odoo
+######### Odoo configuration.
+
+# If you want to use USB scale
+sed -i 's/,hw_drivers/,hw_drivers,hw_scale_usb,hw_cups/' /etc/init.d/odoo
+mv /home/pi/odoo/addons/hw_drivers/drivers/SerialScaleDriver.py /home/pi/SerialScaleDriver.py
+
+# If you only want printing
+# sed -i 's/,hw_drivers/,hw_drivers,hw_cups/' /etc/init.d/odoo
 
 rm -rf /var/cache/*
 
