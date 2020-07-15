@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Compliments to Jared Kipe
 # Note that CUPS install is not needed, IoT uses it as well...
 
 set -x
